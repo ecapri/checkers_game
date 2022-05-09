@@ -1,9 +1,9 @@
-# Eric Capri 2/1/2022
-# CS 405 - HW 1
-# Implementation of Randomized Checkers Bot
+# Eric Capri 2/15/2022
+# CS 405 - HW 2
+# Implementation of MiniMax Search
 
 import pygame
-from constants import WIDTH, HEIGHT, GREY, FULL_WIDTH, FULL_HEIGHT
+from constants import HEIGHT, FULL_WIDTH
 import gameEvents
 
 
@@ -20,10 +20,11 @@ def main():
     while 1:
         if game.gameOver() is not None:
             print(game.gameOver())
+            print(game.count)
             break
 
         if game.turn.computer:
-            game.randomBot()
+            game.move_generator()
 
         for event in pygame.event.get():
 
@@ -34,6 +35,8 @@ def main():
                 (x, y) = pygame.mouse.get_pos()
                 row = y // 100
                 col = x // 100
+                if row > 7 or col > 7:
+                    continue
                 game.select(row, col)
 
         game.update()

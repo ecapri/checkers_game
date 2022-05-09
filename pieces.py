@@ -8,13 +8,13 @@ CROWN = pygame.transform.scale(CROWN, (75, 75))
 
 
 class Piece(object):
-    def __init__(self, color, col, row):
+    def __init__(self, color, row, col, king=False):
         self.color = color
         self.col = col
         self.row = row
         self.x = 0
         self.y = 0
-        self.king = False
+        self.king = king
 
         if self.color == RED:
             self.direction = 1
@@ -52,6 +52,12 @@ class Piece(object):
 
     def __repr__(self):
         if self.color == RED:
-            return "r"
+            if self.king:
+                return "rk"
+            else:
+                return "r"
         else:
-            return "b"
+            if self.king:
+                return "bk"
+            else:
+                return "b"

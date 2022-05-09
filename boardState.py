@@ -1,4 +1,5 @@
 # board object: handles board state (pieces left, kings, etc)
+import copy
 
 import pygame
 from constants import SIZE, RED, BLACK, GREY, ROW, COL
@@ -34,9 +35,9 @@ class Board(object):
             for col in range(COL):
                 if col % 2 != row % 2:  # need to alternate
                     if row < 3:
-                        self.state[row].append(pieces.Piece(RED, col, row))  # red at top
+                        self.state[row].append(pieces.Piece(RED, row, col))  # red at top
                     elif row > 4:
-                        self.state[row].append(pieces.Piece(GREY, col, row))  # black/white at bottom
+                        self.state[row].append(pieces.Piece(GREY, row, col))  # black/white at bottom
                     else:
                         self.state[row].append(0)
                 else:
@@ -55,18 +56,20 @@ class Board(object):
     # need to update state, check kings
     def move(self, piece, row, col):
         # update  board state by swapping elements
-        self.state[piece.row][piece.col], self.state[row][col] = self.state[row][col], self.state[piece.row][piece.col]
+        self.state[row][col] = piece
+        self.state[piece.row][piece.col] = 0
 
         # set new location
         piece.move(row, col)
 
         # handle kings
-        if piece.color == GREY and row == 0:
-            piece.makeKing()
-            self.white_kings += 1
-        elif piece.color == RED and row == 7:
-            piece.makeKing()
-            self.red_kings += 1
+        if not piece.king:
+            if piece.color == GREY and row == 0:
+                piece.makeKing()
+                self.white_kings += 1
+            elif piece.color == RED and row == 7:
+                piece.makeKing()
+                self.red_kings += 1
 
     def remove(self, jumped):
         for piece in jumped:
@@ -90,6 +93,7 @@ class Board(object):
         return p
 
     def getAllMoves(self, color):
+        self.master = {}
         p = self.allPieces(color)
         for piece in p:
             row = piece.row
@@ -101,6 +105,7 @@ class Board(object):
         moves = {}
         self.jumps = {}
         if not self._checkJump(piece.row, piece.col, piece.color, piece.direction, piece.king) and not self.jump:
+            print("made it to check moves")
             moves = self._checkMove(piece.row, piece.col, piece.direction, piece.king)
 
         if not self.prev and self.jump:
@@ -108,6 +113,7 @@ class Board(object):
             self.prev = True
 
         moves.update(self.jumps)
+        print("moves:" + str(moves))
         return moves
 
     def _checkJump(self, row, col, color, direction, king, jumped=[]):
@@ -117,7 +123,7 @@ class Board(object):
         r = row + direction
 
         if king:
-            if self._kingJump(row, col, color, ""):
+            if self._kingJump(row, col, color, ''):
                 result = True
                 return result
 
@@ -149,7 +155,6 @@ class Board(object):
                         self.jump = True
                         self.jumps[(r, right)] = [cur] + jumped
                         self._checkJump(r, right, color, direction, king, [cur] + jumped)
-
         return result
 
     def _kingJump(self, row, col, color, direction, jumped=[]):
@@ -160,7 +165,7 @@ class Board(object):
         right = col + 1
 
         # check upper left jump, make sure not to check direction came from
-        if self.inBounds(up, left) and direction != "se":
+        if self.inBounds(up, left) and direction != 'se':
             cur = self.getPiece(up, left)
             if cur != 0 and cur.color != color:
                 up -= 1
@@ -171,10 +176,10 @@ class Board(object):
                         result = True
                         self.jump = True
                         self.jumps[(up, left)] = [cur] + jumped
-                        self._kingJump(up, left, color, "nw", [cur] + jumped)
+                        self._kingJump(up, left, color, 'nw', [cur] + jumped)
 
         # check lower left jump
-        if self.inBounds(down, left) and direction != "ne":
+        if self.inBounds(down, left) and direction != 'ne':
             left = col - 1
             cur = self.getPiece(down, left)
             if cur != 0 and cur.color != color:
@@ -186,10 +191,10 @@ class Board(object):
                         result = True
                         self.jump = True
                         self.jumps[(down, left)] = [cur] + jumped
-                        self._kingJump(down, left, color, "sw", [cur] + jumped)
+                        self._kingJump(down, left, color, 'sw', [cur] + jumped)
 
         # check upper right jump
-        if self.inBounds(up, right) and direction != "sw":
+        if self.inBounds(up, right) and direction != 'sw':
             up = row - 1
             cur = self.getPiece(up, right)
             if cur != 0 and cur.color != color:
@@ -201,10 +206,10 @@ class Board(object):
                         result = True
                         self.jump = True
                         self.jumps[(up, right)] = [cur] + jumped
-                        self._kingJump(up, right, color, "ne", [cur] + jumped)
+                        self._kingJump(up, right, color, 'ne', [cur] + jumped)
 
         # check lower right jump
-        if self.inBounds(down, right) and direction != "nw":
+        if self.inBounds(down, right) and direction != 'nw':
             down = row + 1
             right = col + 1
             cur = self.getPiece(down, right)
@@ -217,7 +222,7 @@ class Board(object):
                         result = True
                         self.jump = True
                         self.jumps[(down, right)] = [cur] + jumped
-                        self._kingJump(down, right, color, "se", [cur] + jumped)
+                        self._kingJump(down, right, color, 'se', [cur] + jumped)
 
         return result
 
@@ -255,3 +260,23 @@ class Board(object):
             return False
         return True
 
+    def score(self, color):
+        if color == RED:
+            return (self.red_pieces - self.white_pieces) + (self.red_kings * 1.5 - self.white_kings * 1.5)
+        else:
+            return (self.white_pieces - self.red_pieces) + (self.white_kings * 1.5 - self.red_kings * 1.5)
+
+    def winner(self):
+        if self.red_pieces <= 0:
+            return "Grey"
+        elif self.white_pieces <= 0:
+            return "Red"
+        else:
+            return None
+
+    def copy(self):
+        board = copy.deepcopy(self)
+        for row in range(ROW):
+            for col in range(COL):
+                board.state[row][col] = copy.deepcopy(self.state[row][col])
+        return board
