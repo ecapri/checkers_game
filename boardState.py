@@ -2,8 +2,8 @@
 import copy
 
 import pygame
-from constants import SIZE, RED, BLACK, GREY, ROW, COL
-import pieces
+from src.constants import SIZE, RED, BLACK, GREY, ROW, COL
+from src import pieces
 
 
 class Board(object):
@@ -75,8 +75,12 @@ class Board(object):
         for piece in jumped:
             if piece.color == RED:
                 self.red_pieces -= 1
+                if piece.king:
+                    self.red_kings -= 1
             else:
                 self.white_pieces -= 1
+                if piece.king:
+                    self.white_kings -= 1
 
             self.state[piece.row][piece.col] = 0
 
@@ -105,7 +109,6 @@ class Board(object):
         moves = {}
         self.jumps = {}
         if not self._checkJump(piece.row, piece.col, piece.color, piece.direction, piece.king) and not self.jump:
-            print("made it to check moves")
             moves = self._checkMove(piece.row, piece.col, piece.direction, piece.king)
 
         if not self.prev and self.jump:
@@ -113,7 +116,6 @@ class Board(object):
             self.prev = True
 
         moves.update(self.jumps)
-        print("moves:" + str(moves))
         return moves
 
     def _checkJump(self, row, col, color, direction, king, jumped=[]):
@@ -268,9 +270,9 @@ class Board(object):
 
     def winner(self):
         if self.red_pieces <= 0:
-            return "Grey"
+            return GREY
         elif self.white_pieces <= 0:
-            return "Red"
+            return RED
         else:
             return None
 
@@ -280,3 +282,11 @@ class Board(object):
             for col in range(COL):
                 board.state[row][col] = copy.deepcopy(self.state[row][col])
         return board
+
+    def print(self):
+        string = ""
+        for row in range(ROW):
+            string = string + "\n"
+            for col in range(COL):
+                string = string + str(self.state[row][col])
+        return string

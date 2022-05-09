@@ -1,17 +1,19 @@
 # handles events of the game
 import random
+import time
 from math import inf
 
 import pygame
 
-import boardState
-from player import Player, RANDOM, MINIMAX
-from constants import RED, GREY, HEIGHT, SIZE, BLUE, GREEN, FULL_WIDTH, BLACK, WHITE, BACK
-from pieces import CROWN
+from src import boardState
+from src.MCSTNode import Node
+from src.player import Player, RANDOM, MINIMAX, MONTECARLO
+from src.constants import RED, GREY, HEIGHT, SIZE, BLUE, GREEN, FULL_WIDTH, BLACK, WHITE, BACK
+from src.pieces import CROWN
 
-BOT = pygame.image.load("botImage.jpg")
+BOT = pygame.image.load("templates/botImage.jpg")
 BOT = pygame.transform.scale(BOT, (75, 75))
-PER = pygame.image.load("person.jpg")
+PER = pygame.image.load("templates/person.jpg")
 PER = pygame.transform.scale(PER, (75, 75))
 
 
@@ -29,6 +31,7 @@ class Game(object):
         self.cur_moves = {}
         self.count = 1
         self.boards_evaluated = 0
+        self.start_time = 0
 
         if self.player1.color == RED:
             self.turn = self.player1
@@ -156,49 +159,67 @@ class Game(object):
         if self.count > 100:
             return "Draw"
         else:
-            return self.board.winner()
+            res = self.board.winner()
+            if res == RED:
+                return "Red"
+            elif res == GREY:
+                return "Grey"
+            else:
+                return None
 
     def move_generator(self):
         self.boards_evaluated = 0
         if self.turn.gen == RANDOM:
             return self.randomMove()
-        else:
+        elif self.turn.gen == MINIMAX:
             return self.search_move()
+        else:
+            return self.monte_carlo_search()
 
     def randomMove(self):
-        self.board.getAllMoves(self.turn.color)
-        available = self.board.master
-        if not available:
-            if self.turn.color == RED:
-                self.board.red_pieces = 0
-            else:
-                self.board.white_pieces = 0
+        row, col = self.get_rand_move(self.board, self.turn.color)
+        self.validMove(row, col)
+
+    def get_rand_move(self, board, color):
+        row = 0
+        col = 0
+        board.getAllMoves(color)
+        available = board.master
         while 1:
+            if not available:
+                if color == RED:
+                    board.red_pieces = 0
+                else:
+                    board.white_pieces = 0
+                return
             piece = random.choice(list(available))
-            moves = self.board.master[piece]
+            moves = board.master[piece]
             if moves == {}:
                 available.pop(piece)
                 continue
             else:
                 r, c = piece
-                self.selected = self.board.getPiece(r, c)
+                self.selected = board.getPiece(r, c)
                 self.cur_moves = moves
                 row, col = random.choice(list(moves))
                 break
-        self.validMove(row, col)
+        return row, col
 
     def search_move(self):
+        self.start_time = time.time()
         print("Turn depth: " + str(self.turn.depth))
         self.board = self.minimax(self.board, self.turn, self.turn.depth, True)[1]
         print(self.boards_evaluated)
+        print("MINIMAX TIME: ")
+        print(time.time() - self.start_time)
         self.nextTurn()
         return self.boards_evaluated
 
-    def minimax(self, board, player, depth, maximum):
+    def minimax(self, board, player, depth, is_max, alpha=float(-inf), beta=float(inf)):
         print("depth:" + str(depth))
         if depth == 0 or board.winner() is not None:
             return board.score(self.turn.color), board
-        elif maximum:
+        elif is_max:
             cur_max = float(-inf)
             best_move = None
             boards = self.get_boards(board, player.color)
@@ -206,10 +227,13 @@ class Game(object):
                 path.jump = False
                 self.boards_evaluated += 1
                 next_player = self.changePlayer(player)
-                value = self.minimax(path, next_player, depth - 1, False)[0]
-                if value > cur_max:
-                    cur_max = value
+                value = self.minimax(path, next_player, depth - 1, False, alpha, beta)[0]
+                cur_max = max(cur_max, value)
+                alpha = max(alpha, cur_max)
+                if cur_max == value:
                     best_move = path
+                if beta <= alpha:
+                    break
             return cur_max, best_move
         else:
             cur_min = float(inf)
@@ -219,10 +243,13 @@ class Game(object):
                 path.jump = False
                 self.boards_evaluated += 1
                 next_player = self.changePlayer(player)
-                value = self.minimax(path, next_player, depth - 1, True)[0]
-                if value < cur_min:
-                    cur_min = value
+                value = self.minimax(path, next_player, depth - 1, True, alpha, beta)[0]
+                cur_min = min(cur_min, value)
+                beta = min(beta, cur_min)
+                if cur_min == value:
                     best_move = path
+                if beta <= alpha:
+                    break
             return cur_min, best_move
 
     def get_boards(self, board, color):
@@ -245,6 +272,116 @@ class Game(object):
             board.remove(jumped)
         return board
 
+    def monte_carlo_search(self):
+        self.start_time = time.time()
+        limit = self.turn.time
+        base = Node(self.board, self.turn)
+        self._expand(base)
+        total = 0
+        while 1:
+            elapsed_time = time.time() - self.start_time
+            # keeps track of time
+            if elapsed_time >= limit:
+                break
+
+            node = self._traverse(base)  # select
+            self._expand(node)  # expand
+            result = self._rollout(node)  # rollout
+            total += 1
+            self.back_propagate(node, total, result)  # back propagate and sort
+
+        self.board = base.children[0].data
+        print("MCST TIME: ")
+        print(time.time() - self.start_time)
+        self.nextTurn()
+
+    # selects the state to expand on
+    def _traverse(self, root):
+        current = root
+        limit = self.turn.time
+        while 1:
+            elapsed_time = time.time() - self.start_time
+            if elapsed_time >= limit:
+                break
+            if current.children is None or not current.children:  # leaf node
+                break
+            else:
+                current = current.children[0]
+        return current
+
+    # sorts the list of states
+    def _sort_uct(self, node):
+        current = None
+        children = []
+        for child in node.children:
+            if current is None:
+                current = child
+            elif child.uct > current.uct:
+                current = child
+                children.insert(0, current)
+            else:
+                children.append(child)
+        node.children = children
+
+    # expands to next possible boards
+    def _expand(self, node):
+        print("made it to expand")
+        children = []
+        boards = self.get_boards(node.data, node.turn.color)
+        if node.parent is None:
+            player = node.turn
+        else:
+            player = self.changePlayer(node.turn)
+        for board in boards:
+            child = Node(board, player, node)
+            children.append(child)
+        node.children = children
+
+    # continues until terminal state
+    def _rollout(self, node):
+        print("made it to rollout")
+        board = node.data.copy()
+        player = node.turn
+        count = 0
+        limit = self.turn.time
+        while 1:
+            elapsed_time = time.time() - self.start_time
+            if elapsed_time >= limit:
+                break
+            if board.winner() or count > 100:
+                break
+            print("BOARD")
+            print(player.color)
+            print(board.state)
+            move = self.get_rand_move(board, player.color)
+            if move is None:
+                return self.changePlayer(player).color
+            piece = self.selected
+            print(piece)
+            jumped = self.cur_moves[(move[0], move[1])]
+            board = self.simulate_move(board, piece, move, jumped)
+            player = self.changePlayer(player)
+            count += 1
+        return board.winner()
+
+    # update stats & sort children
+    def back_propagate(self, node, total, result):
+        print("made it to back prop")
+        current = node
+        limit = self.turn.time
+        while 1:
+            elapsed_time = time.time() - self.start_time
+            if elapsed_time >= limit:
+                break
+            if current.parent is None:
+                break
+            if result == current.turn.color:
+                current.wins += 1
+            current.num_rollout += 1
+            current.calc_uct(total)
+            current = current.parent
+            self._sort_uct(current)
+
     def menu(self):
         begin = False
         font = 'freesansbold.ttf'
@@ -253,17 +390,20 @@ class Game(object):
         player1_comp = False
         player1_gen = None
         player1_depth = 0
+        player1_time = 5
+
         player2_color = GREY
         player2_comp = True
         player2_gen = RANDOM
         player2_depth = 0
+        player2_time = 5
 
         tournament = ' OFF '
 
         while 1:
             if begin:
-                self.player1 = Player(player1_color, player1_comp, player1_gen, player1_depth)
-                self.player2 = Player(player2_color, player2_comp, player2_gen, player2_depth)
+                self.player1 = Player(player1_color, player1_comp, player1_gen, player1_depth, player1_time)
+                self.player2 = Player(player2_color, player2_comp, player2_gen, player2_depth, player2_time)
                 return
 
             self.window.fill(BACK)
@@ -272,7 +412,7 @@ class Game(object):
             self.drawText('CHECKERS', font, 60, WHITE, BACK, FULL_WIDTH // 2, HEIGHT // 8)
 
             # create start button
-            self.drawText(' Start ', font, 40, RED, WHITE, FULL_WIDTH // 2, 700)
+            self.drawText(' Start ', font, 40, RED, WHITE, FULL_WIDTH // 2, 725)
 
             # players
             self.drawText(' Player 1 ', font, 40, WHITE, BACK, 250, 200)
@@ -303,13 +443,20 @@ class Game(object):
                 # move generator options
                 if player1_gen == RANDOM:
                     self.drawText(' Random ', font, 30, BLACK, BLUE, 250, 425)
-                else:
+                elif MINIMAX:
                     self.drawText(' Minimax ', font, 30, BLACK, BLUE, 250, 425)
                     s = 'Depth : ' + str(player1_depth)
                     self.drawText(s, font, 35, WHITE, BACK, 250, 500)
                     pygame.draw.polygon(self.window, WHITE, [(305, 475), (315, 460), (325, 475)], 2)
                     if player1_depth > 0:
                         pygame.draw.polygon(self.window, WHITE, [(305, 520), (315, 535), (325, 520)], 2)
+                else:
+                    self.drawText(' Monte Carlo ', font, 30, BLACK, BLUE, 250, 425)
+                    s = 'Time : ' + str(player1_time)
+                    self.drawText(s, font, 35, WHITE, BACK, 250, 500)
+                    pygame.draw.polygon(self.window, WHITE, [(295, 475), (305, 460), (315, 475)], 2)
+                    if player1_time > 0:
+                        pygame.draw.polygon(self.window, WHITE, [(295, 520), (305, 535), (315, 520)], 2)
             else:
                 self.window.blit(PER, (300, HEIGHT / 3.3))
 
@@ -320,13 +467,20 @@ class Game(object):
                 # move generator options
                 if player2_gen == RANDOM:
                     self.drawText(' Random ', font, 30, BLACK, BLUE, 750, 425)
-                else:
+                elif player2_gen == MINIMAX:
                     self.drawText(' Minimax ', font, 30, BLACK, BLUE, 750, 425)
                     s = 'Depth : ' + str(player2_depth)
                     self.drawText(s, font, 35, WHITE, BACK, 750, 500)
                     pygame.draw.polygon(self.window, WHITE, [(805, 475), (815, 460), (825, 475)], 2)
                     if player2_depth > 0:
                         pygame.draw.polygon(self.window, WHITE, [(805, 520), (815, 535), (825, 520)], 2)
+                else:
+                    self.drawText(' Monte Carlo ', font, 30, BLACK, BLUE, 750, 425)
+                    s = 'Time : ' + str(player2_time)
+                    self.drawText(s, font, 35, WHITE, BACK, 750, 500)
+                    pygame.draw.polygon(self.window, WHITE, [(795, 475), (805, 460), (815, 475)], 2)
+                    if player2_time > 0:
+                        pygame.draw.polygon(self.window, WHITE, [(795, 520), (805, 535), (815, 520)], 2)
             else:
                 self.window.blit(PER, (800, HEIGHT / 3.3))
 
@@ -339,7 +493,7 @@ class Game(object):
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     (x, y) = pygame.mouse.get_pos()
                     # check for start button
-                    if 450 < x < 550 and 675 < y < 725:
+                    if 450 < x < 550 and 700 < y < 750:
                         begin = True
 
                     elif (120 < x < 200 and 240 < y < 320) or (620 < x < 700 and 240 < y < 320):
@@ -372,25 +526,41 @@ class Game(object):
                     elif 200 < x < 300 and 410 < y < 440 and player1_comp:
                         if player1_gen == RANDOM:
                             player1_gen = MINIMAX
+                        elif player1_gen == MINIMAX:
+                            player1_gen = MONTECARLO
                         else:
                             player1_gen = RANDOM
 
                     elif 700 < x < 800 and 410 < y < 440 and player2_comp:
                         if player2_gen == RANDOM:
                             player2_gen = MINIMAX
+                        elif player2_gen == MINIMAX:
+                            player2_gen = MONTECARLO
                         else:
                             player2_gen = RANDOM
 
                     # increase/decrease depth
-                    elif 305 < x < 325 and 460 < y < 475 and player1_gen == MINIMAX:
-                        player1_depth += 1
-                    elif 305 < x < 325 and 520 < y < 535 and player1_gen == MINIMAX and player1_depth > 0:
-                        player1_depth -= 1
+                    elif 305 < x < 325 and 460 < y < 475:
+                        if player1_gen == MINIMAX:
+                            player1_depth += 1
+                        elif player1_gen == MONTECARLO:
+                            player1_time += 1
+                    elif 305 < x < 325 and 520 < y < 535:
+                        if player1_gen == MINIMAX and player1_depth > 0:
+                            player1_depth -= 1
+                        elif player1_gen == MONTECARLO and player1_time > 0:
+                            player1_time -= 1
 
-                    elif 805 < x < 825 and 460 < y < 475 and player2_gen == MINIMAX:
-                        player2_depth += 1
-                    elif 805 < x < 825 and 520 < y < 535 and player2_gen == MINIMAX and player2_depth > 0:
-                        player2_depth -= 1
+                    elif 805 < x < 825 and 460 < y < 475:
+                        if player2_gen == MINIMAX:
+                            player2_depth += 1
+                        elif player2_gen == MONTECARLO:
+                            player2_time += 1
+                    elif 805 < x < 825 and 520 < y < 535:
+                        if player2_gen == MINIMAX and player2_depth > 0:
+                            player2_depth -= 1
+                        elif player2_gen == MONTECARLO and player2_time > 0:
+                            player2_time -= 1
 
                     # change tournament style
                     elif 575 < x < 625 and 575 < y < 625:

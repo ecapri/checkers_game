@@ -1,10 +1,11 @@
 # Eric Capri 2/15/2022
 # CS 405 - HW 2
 # Implementation of MiniMax Search
+from datetime import datetime
 
 import pygame
-from constants import HEIGHT, FULL_WIDTH
-import gameEvents
+from src.constants import HEIGHT, FULL_WIDTH
+from src import gameEvents
 
 
 def main():
@@ -15,12 +16,23 @@ def main():
 
     # initialize state
     game = gameEvents.Game(window)
+    log = open("game.log", 'a')
+    log.write("CHECKERS GAME LOG: " + str(datetime.now()) + "\n")
+    log.write("Player 1: \n")
+    log.write(game.player1.status())
+    log.write("Player 2: \n")
+    log.write(game.player2.status())
 
     # event loop
     while 1:
+        log.write("Turn: " + str(game.count) + "\n")
+        log.write("Initial State: \n")
+        log.write(game.board.print())
         if game.gameOver() is not None:
             print(game.gameOver())
             print(game.count)
+            log.write("Winner: " + game.gameOver() + "\n")
+            log.write("Turn Count: " + str(game.count) + "\n")
             break
 
         if game.turn.computer:
@@ -40,6 +52,11 @@ def main():
                 game.select(row, col)
 
         game.update()
+        log.write("Next State: \n")
+        log.write(game.board.print())
+
+    log.write("END OF GAME: " + str(datetime.now()) + "\n")
+    log.close()
 
 
 if __name__ == '__main__':

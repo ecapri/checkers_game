@@ -1,9 +1,9 @@
 # creates checkers piece; tracks color and position
 
 import pygame
-from constants import SIZE, RED, WHITE
+from src.constants import SIZE, RED, WHITE
 
-CROWN = pygame.image.load("crownImage.png")
+CROWN = pygame.image.load("templates/crownImage.png")
 CROWN = pygame.transform.scale(CROWN, (75, 75))
 
 
